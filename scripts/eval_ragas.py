@@ -25,6 +25,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# 加载 .env（LLM / Embedding 的 key 在这里）
+from dotenv import load_dotenv
+load_dotenv(ROOT / ".env")
+
 # ============================================================
 # 参数
 # ============================================================
@@ -169,7 +173,8 @@ def run_ragas_eval(rag_results: list[dict]) -> dict:
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-    # 裁判 LLM：LongCat-2.0（增加超时和重试，避免长时间挂起）
+    # 裁判 LLM：LongCat-2.0（关闭思考模式，否则每次调用要等模型推理很久）
+    # 文档：thinking 字段 {"type":"disabled"} 关闭思考
     judge_llm = LangchainLLMWrapper(ChatOpenAI(
         model="LongCat-2.0",
         temperature=0,
@@ -177,6 +182,7 @@ def run_ragas_eval(rag_results: list[dict]) -> dict:
         api_key=os.getenv("OPENAI_API_KEY", "dummy"),
         timeout=120,          # 单次请求 2 分钟超时
         max_retries=2,        # 失败重试 2 次
+        extra_body={"thinking": {"type": "disabled"}},
     ))
 
     # Embedding：讯飞云（走 OpenAI 兼容接口）
@@ -204,23 +210,29 @@ def run_ragas_eval(rag_results: list[dict]) -> dict:
         show_progress=True,
     )
 
-    # 提取分数（RAGAS 可能返回 scalar / numpy / list[None]，统一处理）
+    # 提取分数（EvaluationResult 没有 .get()，统一走 to_pandas()）
     import numpy as np
+    import pandas as pd
+
+    try:
+        df: pd.DataFrame = result.to_pandas()
+    except Exception as e:
+        print(f"[!] 转换 DataFrame 失败: {e}")
+        df = pd.DataFrame()
+
     scores = {}
     for metric in ["faithfulness", "answer_relevancy",
                    "context_precision", "context_recall"]:
-        val = result.get(metric)
-        if val is None:
+        if metric not in df.columns:
             scores[metric] = None
             continue
-        # 转 numpy 数组，过滤掉 None/NaN
-        arr = np.array(val, dtype=float) if not hasattr(val, "mean") else val
-        valid = arr[~np.isnan(arr)] if hasattr(arr, "__len__") else np.array([arr])
+        col = pd.to_numeric(df[metric], errors="coerce")
+        valid = col.dropna()
         scores[metric] = float(valid.mean()) if len(valid) > 0 else None
 
     # 明细
     try:
-        details = result.to_pandas().to_dict("records")
+        details = df.to_dict("records")
     except Exception:
         details = []
 
@@ -245,6 +257,9 @@ def print_report(eval_result: dict, output_path: Path) -> None:
     print("=" * 60)
     for metric, score in eval_result["scores"].items():
         cn = METRIC_CN.get(metric, metric)
+        if score is None:
+            print(f"  {cn:12s} ({metric:20s}) ░░░░░░░░░░░░░░░░░░░░ N/A")
+            continue
         bar_len = int(score * 20)
         bar = "█" * bar_len + "░" * (20 - bar_len)
         print(f"  {cn:12s} ({metric:20s}) {bar} {score:.3f}")

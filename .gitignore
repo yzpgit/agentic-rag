@@ -9,6 +9,7 @@ env/
 # 数据与索引（运行时生成）
 data/uploads/
 data/index/
+data/eval/
 *.faiss
 *.pkl
 parent_store/

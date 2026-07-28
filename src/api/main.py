@@ -6,7 +6,12 @@ FastAPI 入口
 - 启动: uvicorn src.api.main:app --reload --port 8000
 """
 from __future__ import annotations
+import os
 from pathlib import Path
+
+# 启动时加载 .env（LLM / Embedding 的 key）
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse

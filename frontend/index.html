@@ -472,6 +472,12 @@ function renderEvalScores(data) {
   $('eval-scores').innerHTML = keys.map(k => {
     const v = scores[k];
     const cn = METRIC_CN[k] || k;
+    if (v == null) {
+      return `<div class="eval-score">
+        <div class="name"><span>${cn}</span><span class="val">N/A</span></div>
+        <div class="sbar"><div class="sbar-fill" style="width:0%"></div></div>
+      </div>`;
+    }
     const pct = Math.round(v * 100);
     const cls = v < 0.5 ? 'bad' : '';
     return `<div class="eval-score ${cls}">
