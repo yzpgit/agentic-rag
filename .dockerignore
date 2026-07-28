@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 本地索引与运行时数据（保留 data/uploads/rag-intro.md 作为种子文档）
+data/index/
+data/uploads/*.pdf
+data/uploads/*.docx
+data/uploads/*.html
+*.faiss
+*.pkl
+parent_store/
+*.sqlite
+
+# 环境与密钥（绝不打进镜像）
+.env
+.env.local
+.env.example
+
+# 版本控制与 IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 文档（非运行时需要）
+*.md
+!data/uploads/*.md
+!README.md

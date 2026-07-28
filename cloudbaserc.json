@@ -1,0 +1,32 @@
+{
+  "version": "2",
+  "envId": "carton-d8gdt4gzp66469418",
+  "framework": {
+    "name": "agentic-rag",
+    "plugins": {
+      "server": {
+        "use": "@cloudbase/framework-plugin-container",
+        "inputs": {
+          "serviceName": "agentic-rag",
+          "servicePath": "/",
+          "localPath": "./",
+          "uploadType": "package",
+          "containerPort": 80,
+          "dockerfilePath": "./Dockerfile",
+          "mode": "low-cost",
+          "cpu": 0.5,
+          "mem": 1,
+          "minNum": 0,
+          "maxNum": 5,
+          "policyType": "cpu",
+          "policyThreshold": 60,
+          "isPublic": true,
+          "envVariables": {
+            "OPENAI_BASE_URL": "https://api.longcat.chat/openai/v1",
+            "OPENAI_API_KEY": "ak_26n8JJ1491HJ0Hd7o73s33V74DW1p"
+          }
+        }
+      }
+    }
+  }
+}

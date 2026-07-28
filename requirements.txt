@@ -1,0 +1,33 @@
+# ===== Web =====
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sse-starlette>=2.1
+python-multipart>=0.0.9
+
+# ===== 配置 =====
+PyYAML>=6.0
+
+# ===== 文档解析 =====
+pypdf>=4.3              # PDF
+beautifulsoup4>=4.12    # HTML
+python-docx>=1.1        # DOCX
+# unstructured>=0.14    # 可选：更强大的多格式解析
+
+# ===== 切分 =====
+# 使用内置实现，无需额外依赖
+
+# ===== Embedding / 向量库 =====
+# 注：当前使用 BM25 模式，向量检索依赖已注释以减小镜像体积（约省 2GB+ 下载）
+# 切换到 vector/hybrid 模式时再取消注释
+# sentence-transformers>=3.0   # 默认 embedding
+# faiss-cpu>=1.8               # 默认向量库（本地零依赖）
+rank-bm25>=0.2.2             # BM25 关键词检索
+
+# ===== LLM =====
+openai>=1.40                 # OpenAI / 兼容接口（qwen/ollama 均可走此）
+
+# ===== 以下为阶段2+ 依赖，阶段1可注释 =====
+# langgraph>=0.2
+# FlagEmbedding>=1.2         # bge-m3 / bge-reranker
+# qdrant-client>=1.10
+# ragas>=0.1

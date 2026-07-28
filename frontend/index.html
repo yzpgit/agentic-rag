@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agentic RAG · 智能研究助手</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --panel: #ffffff;
+    --border: #e5e7eb;
+    --text: #1f2329;
+    --muted: #8a9099;
+    --primary: #4f46e5;
+    --primary-soft: #eef2ff;
+    --user: #4f46e5;
+    --assistant: #ffffff;
+    --trace: #f59e0b;
+    --source: #10b981;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; overflow: hidden;
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  #app { display: grid; grid-template-columns: 280px 1fr 320px; height: 100vh; gap: 0; }
+
+  /* 顶栏 */
+  header {
+    grid-column: 1 / -1; height: 52px; display: flex; align-items: center;
+    padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow); z-index: 10;
+  }
+  header .logo { font-weight: 700; font-size: 15px; }
+  header .logo span { color: var(--primary); }
+  header .status { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+  /* 通用面板 */
+  aside { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+  aside.right { border-right: none; border-left: 1px solid var(--border); }
+  section { margin-bottom: 20px; }
+  section h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .hidden { display: none !important; }
+
+  /* 上传 */
+  .drop {
+    border: 1.5px dashed var(--border); border-radius: 8px; padding: 18px; text-align: center;
+    color: var(--muted); cursor: pointer; transition: .15s; font-size: 12px;
+  }
+  .drop:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+  .upload-result { margin-top: 8px; font-size: 12px; color: var(--source); }
+
+  /* 配置面板 */
+  textarea.cfg {
+    width: 100%; height: 260px; font-family: "SF Mono", Consolas, monospace; font-size: 11px;
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px; resize: vertical; color: var(--text);
+  }
+  button {
+    background: var(--primary); color: #fff; border: none; border-radius: 6px; padding: 6px 12px;
+    font-size: 12px; cursor: pointer; transition: .15s;
+  }
+  button:hover { opacity: .9; }
+  button.ghost { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
+  .row { display: flex; gap: 8px; margin-top: 8px; }
+
+  /* 对话区 */
+  main { display: flex; flex-direction: column; background: var(--bg); }
+  #messages { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .msg { margin-bottom: 18px; max-width: 760px; }
+  .msg .role { font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
+  .bubble { padding: 12px 16px; border-radius: 10px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; box-shadow: var(--shadow); }
+  .msg.user .bubble { background: var(--user); color: #fff; margin-left: 80px; }
+  .msg.assistant .bubble { background: var(--assistant); border: 1px solid var(--border); }
+  .bubble .cite { color: var(--primary); cursor: pointer; font-weight: 600; text-decoration: underline; }
+  .cursor::after { content: "▋"; color: var(--primary); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* trace 折叠 */
+  .trace { margin: 8px 0 12px; padding: 8px 12px; background: #fffbeb; border-left: 3px solid var(--trace); border-radius: 4px; font-size: 12px; color: #92400e; max-width: 760px; }
+  .trace .step { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .trace .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--trace); }
+
+  /* 输入区 */
+  #chat-form { display: flex; gap: 10px; padding: 14px 24px; background: var(--panel); border-top: 1px solid var(--border); }
+  #query-input { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 14px; outline: none; }
+  #query-input:focus { border-color: var(--primary); }
+  #send-btn { padding: 0 20px; }
+
+  /* sources 面板 */
+  .src-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; }
+  .src-card .head { display: flex; justify-content: space-between; font-weight: 600; color: var(--source); margin-bottom: 6px; }
+  .src-card .content { color: var(--text); line-height: 1.6; max-height: 120px; overflow-y: auto; }
+  .src-card .score { color: var(--muted); font-weight: 400; }
+
+  .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 20px; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* 内联 sources（窄屏时显示在回答下方） */
+  .inline-sources { display: none; margin-top: 10px; }
+  .inline-sources .src-card { margin: 6px 0; }
+
+  /* 移动端：单栏布局，左右栏隐藏，sources 内联到回答下方 */
+  @media (max-width: 768px) {
+    #app { grid-template-columns: 1fr; }
+    aside, aside.right { display: none !important; }
+    .inline-sources { display: block; }
+    .msg { max-width: 100%; }
+    .msg.user .bubble { margin-left: 0; }
+    #messages { padding: 14px; }
+    #chat-form { padding: 10px 14px; }
+    #query-input { font-size: 16px; } /* 防 iOS 缩放 */
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">Agentic<span>RAG</span> · 智能研究助手</div>
+    <div class="status" id="status">连接中…</div>
+  </header>
+
+  <!-- 左栏 -->
+  <aside>
+    <section data-feature="upload">
+      <h3>文档入库</h3>
+      <label class="drop" for="file-input">
+        点击或拖拽上传<br/>PDF · MD · HTML · DOCX
+      </label>
+      <input id="file-input" type="file" class="hidden" />
+      <div class="upload-result" id="upload-result"></div>
+      <div class="hint">入库后即可在对话中检索</div>
+    </section>
+
+    <section data-feature="config_panel">
+      <h3>配置（热重载）</h3>
+      <textarea class="cfg" id="cfg-text" spellcheck="false"></textarea>
+      <div class="row">
+        <button id="cfg-apply">应用</button>
+        <button class="ghost" id="cfg-reload">重置</button>
+      </div>
+      <div class="hint">修改后点「应用」，Pipeline 自动重建</div>
+    </section>
+
+    <section data-feature="eval_panel">
+      <h3>评测</h3>
+      <div id="eval-box" class="empty">阶段4启用</div>
+    </section>
+  </aside>
+
+  <!-- 中栏 对话 -->
+  <main>
+    <div id="messages">
+      <div class="empty" id="welcome">上传文档后开始提问 · 当前为朴素 RAG 模式（阶段1）</div>
+    </div>
+    <form id="chat-form">
+      <input id="query-input" autocomplete="off" placeholder="输入你的问题…" />
+      <button id="send-btn" type="submit">发送</button>
+    </form>
+  </main>
+
+  <!-- 右栏 sources -->
+  <aside class="right" data-feature="sources">
+    <h3>引用来源</h3>
+    <div id="sources"><div class="empty">检索结果将显示在此</div></div>
+  </aside>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let cfg = {};
+let sourcesCache = [];
+
+// ---------- 初始化 ----------
+async function init() {
+  try {
+    cfg = await fetch('/config').then(r => r.json());
+    applyFeatures(cfg.frontend?.features || []);
+    $('cfg-text').value = JSON.stringify(cfg, null, 2);
+    $('status').textContent = '已连接 · ' + (cfg.agent?.enabled ? 'Agentic' : '朴素 RAG');
+  } catch (e) {
+    $('status').textContent = '后端未启动';
+  }
+}
+
+function applyFeatures(features) {
+  document.querySelectorAll('[data-feature]').forEach(el => {
+    el.classList.toggle('hidden', !features.includes(el.dataset.feature));
+  });
+}
+
+// ---------- 上传 ----------
+$('file-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  $('upload-result').textContent = '解析入库中…';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '上传失败');
+    $('upload-result').textContent = `✓ ${data.filename} · ${data.chunks} 个片段已入库`;
+  } catch (err) {
+    $('upload-result').textContent = '✗ ' + err.message;
+  }
+});
+
+// ---------- 配置热重载 ----------
+$('cfg-apply').addEventListener('click', async () => {
+  try {
+    const newCfg = JSON.parse($('cfg-text').value);
+    const res = await fetch('/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newCfg)
+    });
+    cfg = await res.json();
+    applyFeatures(cfg.frontend?.features || []);
+    $('status').textContent = '已重建 · ' + (cfg.agent?.enabled ? 'Agentic' : '朴素 RAG');
+    alert('配置已应用，Pipeline 已重建');
+  } catch (err) {
+    alert('配置解析失败：' + err.message);
+  }
+});
+$('cfg-reload').addEventListener('click', () => init());
+
+// ---------- 对话 SSE ----------
+const form = $('chat-form');
+const messages = $('messages');
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('query-input').value.trim();
+  if (!q) return;
+  sendQuery(q);
+  $('query-input').value = '';
+});
+
+function sendQuery(q) {
+  $('welcome')?.remove();
+  // 用户气泡
+  const u = msgEl('user', q);
+  messages.appendChild(u);
+  // 助手占位
+  const a = msgEl('assistant', '');
+  const bubble = a.querySelector('.bubble');
+  const inlineSrc = a.querySelector('.inline-sources'); // 移动端内联 sources
+  bubble.classList.add('cursor');
+  messages.appendChild(a);
+  // trace 容器（插在气泡前）
+  const traceBox = document.createElement('div');
+  traceBox.className = 'trace';
+  a.insertBefore(traceBox, bubble);
+
+  // 清空 sources
+  sourcesCache = [];
+  renderSources();
+
+  const es = new EventSource(`/chat/stream?q=${encodeURIComponent(q)}`);
+  let firstToken = true;
+
+  es.addEventListener('trace', (e) => {
+    const d = JSON.parse(e.data);
+    const step = document.createElement('div');
+    step.className = 'step';
+    step.innerHTML = `<span class="dot"></span>${d.node}: ${d.msg}`;
+    traceBox.appendChild(step);
+  });
+
+  es.addEventListener('source', (e) => {
+    const d = JSON.parse(e.data);
+    sourcesCache.push(d);
+    renderSources();
+    // 内联渲染（移动端可见）：追加到助手消息下方
+    const card = document.createElement('div');
+    card.className = 'src-card';
+    const snippet = d.content.slice(0, 150) + (d.content.length > 150 ? '…' : '');
+    card.innerHTML = `<div class="head"><span>[${d.index}] 来源</span><span class="score">${d.score}</span></div><div class="content">${escapeHtml(snippet)}</div>`;
+    inlineSrc.appendChild(card);
+    // 在答案中追加引用标记
+    bubble.textContent += (firstToken ? '' : ' ') + `[${d.index}]`;
+  });
+
+  es.addEventListener('reasoning', (e) => {
+    // LongCat-2.0 思考过程（阶段2可视化，阶段1 thinking=false 不会触发）
+    const d = JSON.parse(e.data);
+    let rt = traceBox.querySelector('.reasoning-text');
+    if (!rt) {
+      rt = document.createElement('div');
+      rt.className = 'reasoning-text';
+      rt.style.cssText = 'color:#6b7280;font-style:italic;margin-top:6px;white-space:pre-wrap;';
+      traceBox.appendChild(rt);
+    }
+    rt.textContent += d.text;
+    messages.scrollTop = messages.scrollHeight;
+  });
+
+  es.addEventListener('token', (e) => {
+    const d = JSON.parse(e.data);
+    if (firstToken) { bubble.textContent = ''; firstToken = false; }
+    bubble.textContent += d.text;
+    messages.scrollTop = messages.scrollHeight;
+  });
+
+  es.addEventListener('done', () => {
+    bubble.classList.remove('cursor');
+    es.close();
+  });
+
+  es.onerror = () => {
+    bubble.classList.remove('cursor');
+    if (firstToken) bubble.textContent = '（连接中断）';
+    es.close();
+  };
+}
+
+function msgEl(role, text) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const label = role === 'user' ? '你' : '助手';
+  // 助手消息额外挂一个内联 sources 容器（移动端可见，桌面端隐藏）
+  const extra = role === 'assistant' ? '<div class="inline-sources"></div>' : '';
+  div.innerHTML = `<div class="role">${label}</div><div class="bubble">${escapeHtml(text)}</div>${extra}`;
+  return div;
+}
+
+function renderSources() {
+  const box = $('sources');
+  if (!sourcesCache.length) {
+    box.innerHTML = '<div class="empty">检索结果将显示在此</div>';
+    return;
+  }
+  box.innerHTML = sourcesCache.map(s => `
+    <div class="src-card">
+      <div class="head"><span>[${s.index}] 来源</span><span class="score">${s.score}</span></div>
+      <div class="content">${escapeHtml(s.content.slice(0, 200))}${s.content.length > 200 ? '…' : ''}</div>
+    </div>`).join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+init();
+</script>
+</body>
+</html>
