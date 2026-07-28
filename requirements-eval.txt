@@ -8,7 +8,9 @@
 
 ragas>=0.2.0
 langchain-openai>=0.1.20
-langchain-community>=0.2.0
+# 注意：必须 pin <0.4，否则 ragas 导入 langchain_community.chat_models.vertexai 会失败
+# https://github.com/vibrantlabsai/ragas/issues/2741
+langchain-community>=0.3.0,<0.4
 langchain-core>=0.2.0
 datasets>=2.20
 pandas>=2.0
