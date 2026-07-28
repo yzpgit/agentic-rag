@@ -48,13 +48,33 @@ CRUD_DATA_FILE = ROOT / "data" / "eval" / "crud_split_merged.json"
 
 
 def download_crud_rag() -> None:
-    """下载 CRUD-RAG 数据集"""
+    """下载 CRUD-RAG 数据集（支持镜像加速）"""
     if not CRUD_LOCAL.exists():
-        print("  正在 clone CRUD-RAG 仓库...")
-        subprocess.run(
-            ["git", "clone", "--depth", "1", CRUD_REPO, str(CRUD_LOCAL)],
-            check=True,
-        )
+        # 国内访问 GitHub 慢，尝试多个镜像源
+        mirrors = [
+            CRUD_REPO,                                          # 官方（兜底）
+            f"https://ghfast.top/{CRUD_REPO}",                  # ghfast
+            f"https://gh-proxy.com/{CRUD_REPO}",                # gh-proxy
+            f"https://mirror.ghproxy.com/{CRUD_REPO}",          # ghproxy
+        ]
+        print("  正在 clone CRUD-RAG 仓库（尝试镜像加速）...")
+        last_err = None
+        for url in mirrors:
+            try:
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", url, str(CRUD_LOCAL)],
+                    check=True, timeout=120,
+                )
+                print(f"  ✓ 使用: {url}")
+                break
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                print(f"  ✗ 失败: {url}")
+                last_err = e
+                # 清理失败的目录
+                if CRUD_LOCAL.exists():
+                    shutil.rmtree(CRUD_LOCAL, ignore_errors=True)
+        else:
+            raise RuntimeError(f"所有镜像均失败: {last_err}")
     src = CRUD_LOCAL / "data" / "crud_split" / "split_merged.json"
     if not src.exists():
         raise FileNotFoundError(f"CRUD-RAG 数据文件不存在: {src}")
