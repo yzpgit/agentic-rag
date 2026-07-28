@@ -1,6 +1,7 @@
 """评测路由：RAGAS + CRUD-RAG 双轨评测"""
 from __future__ import annotations
 import json
+import os
 import threading
 import time
 import subprocess
@@ -38,6 +39,31 @@ def _write_progress(stage: str, msg: str, pct: int) -> None:
         }, f, ensure_ascii=False)
 
 
+def _get_eval_python() -> str:
+    """获取评测用的 python 解释器路径
+
+    优先级：
+    1. 环境变量 EVAL_PYTHON（显式指定）
+    2. ~/eval-env/bin/python（uv 创建的虚拟环境）
+    3. sys.executable（兜底，容器内）
+    """
+    # 1. 环境变量显式指定
+    env_py = os.environ.get("EVAL_PYTHON")
+    if env_py and Path(env_py).exists():
+        return env_py
+    # 2. uv venv 路径（容器内挂载宿主机 venv 时可用）
+    candidates = [
+        Path.home() / "eval-env" / "bin" / "python",
+        Path("/home/ubuntu/eval-env/bin/python"),
+        Path("/root/eval-env/bin/python"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    # 3. 兜底
+    return sys.executable
+
+
 def _run_eval(sample: int, mode: str | None) -> None:
     """子线程跑评测脚本，写进度文件"""
     with _eval_lock:
@@ -49,7 +75,8 @@ def _run_eval(sample: int, mode: str | None) -> None:
         })
     _write_progress("init", "评测启动中…", 5)
     try:
-        cmd = [sys.executable, "scripts/eval_ragas.py", "--sample", str(sample)]
+        py = _get_eval_python()
+        cmd = [py, "scripts/eval_ragas.py", "--sample", str(sample)]
         if mode:
             cmd += ["--mode", mode]
         # 实时读取输出，解析 [n/4] 进度
