@@ -1,0 +1,13 @@
+# ===== RAGAS 评测独立依赖 =====
+# 与主项目隔离，避免 langchain/torch 等重依赖污染运行镜像
+# 安装：pip install -r requirements-eval.txt
+#
+# 依赖链说明：
+#   ragas → langchain + langchain-openai + datasets
+#   总体积约 200MB（不含 torch，因为只用 API 不用本地模型）
+
+ragas>=0.2.0
+langchain-openai>=0.1.20
+langchain-core>=0.2.0
+datasets>=2.20
+pandas>=2.0
