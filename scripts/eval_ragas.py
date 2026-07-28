@@ -169,12 +169,14 @@ def run_ragas_eval(rag_results: list[dict]) -> dict:
     from ragas.embeddings import LangchainEmbeddingsWrapper
     from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-    # 裁判 LLM：LongCat-2.0（默认不开启 thinking，直接返回 content）
+    # 裁判 LLM：LongCat-2.0（增加超时和重试，避免长时间挂起）
     judge_llm = LangchainLLMWrapper(ChatOpenAI(
         model="LongCat-2.0",
         temperature=0,
         base_url=os.getenv("OPENAI_BASE_URL"),
         api_key=os.getenv("OPENAI_API_KEY", "dummy"),
+        timeout=120,          # 单次请求 2 分钟超时
+        max_retries=2,        # 失败重试 2 次
     ))
 
     # Embedding：讯飞云（走 OpenAI 兼容接口）
@@ -202,12 +204,19 @@ def run_ragas_eval(rag_results: list[dict]) -> dict:
         show_progress=True,
     )
 
-    # 提取分数
+    # 提取分数（RAGAS 可能返回 scalar / numpy / list[None]，统一处理）
+    import numpy as np
     scores = {}
     for metric in ["faithfulness", "answer_relevancy",
                    "context_precision", "context_recall"]:
-        val = result[metric]
-        scores[metric] = float(val.mean()) if hasattr(val, "mean") else float(val)
+        val = result.get(metric)
+        if val is None:
+            scores[metric] = None
+            continue
+        # 转 numpy 数组，过滤掉 None/NaN
+        arr = np.array(val, dtype=float) if not hasattr(val, "mean") else val
+        valid = arr[~np.isnan(arr)] if hasattr(arr, "__len__") else np.array([arr])
+        scores[metric] = float(valid.mean()) if len(valid) > 0 else None
 
     # 明细
     try:
