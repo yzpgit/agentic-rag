@@ -101,6 +101,29 @@
   .inline-sources { display: none; margin-top: 10px; }
   .inline-sources .src-card { margin: 6px 0; }
 
+  /* 评测面板 */
+  .eval-controls { display: flex; flex-direction: column; gap: 8px; }
+  .eval-controls select, .eval-controls input[type="number"] {
+    width: 100%; border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; font-size: 12px; outline: none;
+  }
+  .eval-controls select:focus, .eval-controls input:focus { border-color: var(--primary); }
+  .eval-controls label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px; }
+  .eval-progress { margin-top: 10px; }
+  .eval-progress .bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .eval-progress .bar-fill { height: 100%; background: var(--primary); transition: width .3s; }
+  .eval-progress .pmsg { font-size: 11px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+  .eval-scores { margin-top: 12px; }
+  .eval-score { margin-bottom: 10px; }
+  .eval-score .name { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
+  .eval-score .name .val { font-weight: 700; color: var(--primary); }
+  .eval-score .sbar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .eval-score .sbar-fill { height: 100%; background: linear-gradient(90deg, var(--source), var(--primary)); }
+  .eval-score.bad .sbar-fill { background: linear-gradient(90deg, #ef4444, #f59e0b); }
+  .eval-meta { font-size: 10px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .eval-error { color: #ef4444; font-size: 11px; margin-top: 6px; word-break: break-all; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
   /* 移动端：单栏布局，左右栏隐藏，sources 内联到回答下方 */
   @media (max-width: 768px) {
     #app { grid-template-columns: 1fr; grid-template-rows: 52px 1fr; height: 100vh; height: 100dvh; overflow: hidden; }
@@ -145,8 +168,30 @@
     </section>
 
     <section data-feature="eval_panel">
-      <h3>评测</h3>
-      <div id="eval-box" class="empty">阶段4启用</div>
+      <h3>评测 (RAGAS · CRUD-RAG)</h3>
+      <div class="eval-controls">
+        <div>
+          <label>抽样条数</label>
+          <input type="number" id="eval-sample" value="10" min="3" max="50" />
+        </div>
+        <div>
+          <label>检索模式</label>
+          <select id="eval-mode">
+            <option value="">默认（config.yaml）</option>
+            <option value="vector">vector 向量</option>
+            <option value="bm25">bm25 关键词</option>
+            <option value="hybrid">hybrid 混合</option>
+          </select>
+        </div>
+        <button id="eval-run-btn">开始评测</button>
+      </div>
+      <div class="eval-progress" id="eval-progress" style="display:none;">
+        <div class="bar"><div class="bar-fill" id="eval-bar" style="width:0%;"></div></div>
+        <div class="pmsg" id="eval-pmsg">准备中…</div>
+      </div>
+      <div class="eval-error" id="eval-error" style="display:none;"></div>
+      <div class="eval-scores" id="eval-scores"></div>
+      <div class="eval-meta" id="eval-meta"></div>
     </section>
   </aside>
 
@@ -341,6 +386,109 @@ function renderSources() {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// ---------- 评测 ----------
+const METRIC_CN = {
+  faithfulness: '忠实度',
+  answer_relevancy: '回答相关性',
+  context_precision: '上下文精确度',
+  context_recall: '上下文召回率',
+};
+let evalPolling = null;
+
+async function evalRun() {
+  const sample = parseInt($('eval-sample').value) || 10;
+  const mode = $('eval-mode').value || null;
+  const btn = $('eval-run-btn');
+  btn.disabled = true;
+  $('eval-error').style.display = 'none';
+  $('eval-progress').style.display = 'block';
+  $('eval-bar').style.width = '5%';
+  $('eval-pmsg').textContent = '正在启动评测…';
+  try {
+    const res = await fetch('/eval/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sample, mode }),
+    });
+    const data = await res.json();
+    if (data.status === 'busy') {
+      $('eval-pmsg').textContent = '已有评测在运行…';
+    }
+    startEvalPolling();
+  } catch (err) {
+    $('eval-error').textContent = '启动失败: ' + err.message;
+    $('eval-error').style.display = 'block';
+    btn.disabled = false;
+  }
+}
+
+function startEvalPolling() {
+  if (evalPolling) clearInterval(evalPolling);
+  evalPolling = setInterval(evalPoll, 2000);
+  evalPoll();
+}
+
+async function evalPoll() {
+  try {
+    const data = await fetch('/eval').then(r => r.json());
+    const p = data.progress || {};
+    // 进度
+    if (p.running || p.pct > 0) {
+      $('eval-progress').style.display = 'block';
+      $('eval-bar').style.width = (p.pct || 0) + '%';
+      $('eval-pmsg').textContent = p.msg || '运行中…';
+    }
+    // 错误
+    if (p.stage === 'error') {
+      $('eval-error').textContent = p.msg;
+      $('eval-error').style.display = 'block';
+      $('eval-run-btn').disabled = false;
+      clearInterval(evalPolling);
+      evalPolling = null;
+      return;
+    }
+    // 完成或已有结果
+    if (p.pct >= 100 || (!p.running && data.scores && Object.keys(data.scores).length)) {
+      $('eval-bar').style.width = '100%';
+      $('eval-pmsg').textContent = '评测完成';
+      $('eval-run-btn').disabled = false;
+      if (evalPolling) { clearInterval(evalPolling); evalPolling = null; }
+    }
+    // 渲染分数
+    renderEvalScores(data);
+  } catch (e) {
+    // 忽略轮询错误
+  }
+}
+
+function renderEvalScores(data) {
+  const scores = data.scores || {};
+  const keys = Object.keys(scores);
+  if (!keys.length) {
+    $('eval-scores').innerHTML = '';
+    return;
+  }
+  $('eval-scores').innerHTML = keys.map(k => {
+    const v = scores[k];
+    const cn = METRIC_CN[k] || k;
+    const pct = Math.round(v * 100);
+    const cls = v < 0.5 ? 'bad' : '';
+    return `<div class="eval-score ${cls}">
+      <div class="name"><span>${cn}</span><span class="val">${v.toFixed(3)}</span></div>
+      <div class="sbar"><div class="sbar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+  const meta = [];
+  if (data.dataset) meta.push('数据集: ' + data.dataset);
+  if (data.judge_llm) meta.push('裁判: ' + data.judge_llm);
+  if (data.detail_count) meta.push('样本数: ' + data.detail_count);
+  $('eval-meta').innerHTML = meta.join('<br/>');
+}
+
+$('eval-run-btn').addEventListener('click', evalRun);
+// 页面加载时拉一次已有结果
+evalPoll();
 
 init();
 </script>

@@ -1,55 +1,135 @@
 """评测路由：RAGAS + CRUD-RAG 双轨评测"""
 from __future__ import annotations
 import json
+import threading
+import time
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks
+from pydantic import BaseModel
 
 router = APIRouter()
 
-_EVAL_RESULT = Path(__file__).resolve().parent.parent.parent.parent / "data" / "eval" / "result.json"
+_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_EVAL_RESULT = _ROOT / "data" / "eval" / "result.json"
+_EVAL_PROGRESS = _ROOT / "data" / "eval" / "progress.json"
+
+# 全局评测状态（进程内）
+_eval_lock = threading.Lock()
+_eval_state = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "sample": 0,
+    "mode": None,
+    "error": None,
+}
+
+
+def _write_progress(stage: str, msg: str, pct: int) -> None:
+    _EVAL_PROGRESS.parent.mkdir(parents=True, exist_ok=True)
+    with open(_EVAL_PROGRESS, "w", encoding="utf-8") as f:
+        json.dump({
+            "stage": stage, "msg": msg, "pct": pct,
+            "running": _eval_state["running"],
+            "started_at": _eval_state["started_at"],
+        }, f, ensure_ascii=False)
+
+
+def _run_eval(sample: int, mode: str | None) -> None:
+    """子线程跑评测脚本，写进度文件"""
+    with _eval_lock:
+        if _eval_state["running"]:
+            return
+        _eval_state.update({
+            "running": True, "started_at": time.time(), "finished_at": None,
+            "sample": sample, "mode": mode, "error": None,
+        })
+    _write_progress("init", "评测启动中…", 5)
+    try:
+        cmd = [sys.executable, "scripts/eval_ragas.py", "--sample", str(sample)]
+        if mode:
+            cmd += ["--mode", mode]
+        # 实时读取输出，解析 [n/4] 进度
+        proc = subprocess.Popen(
+            cmd, cwd=str(_ROOT), stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1,
+        )
+        stage_pct = {"[1/4]": 15, "[2/4]": 35, "[3/4]": 55, "[4/4]": 80}
+        for line in proc.stdout:  # type: ignore
+            line = line.strip()
+            if not line:
+                continue
+            for tag, pct in stage_pct.items():
+                if tag in line:
+                    _write_progress("running", line, pct)
+                    break
+        proc.wait()
+        if proc.returncode != 0:
+            _eval_state["error"] = f"评测脚本退出码 {proc.returncode}"
+            _write_progress("error", _eval_state["error"], 0)
+        else:
+            _write_progress("done", "评测完成", 100)
+    except Exception as e:
+        _eval_state["error"] = str(e)
+        _write_progress("error", str(e), 0)
+    finally:
+        _eval_state["running"] = False
+        _eval_state["finished_at"] = time.time()
+
+
+class EvalRequest(BaseModel):
+    sample: int = 20
+    mode: str | None = None
 
 
 @router.get("/eval")
 async def eval_status() -> dict:
     """查看评测状态和最近一次结果"""
+    # 读取进度
+    progress = {"running": False, "stage": "idle", "msg": "", "pct": 0}
+    if _EVAL_PROGRESS.exists():
+        try:
+            with open(_EVAL_PROGRESS, "r", encoding="utf-8") as f:
+                progress = json.load(f)
+        except Exception:
+            pass
+    # 进程内状态更准确
+    progress["running"] = _eval_state["running"]
+    if _eval_state["error"]:
+        progress["stage"] = "error"
+        progress["msg"] = _eval_state["error"]
+
+    # 读取结果
+    result = None
     if _EVAL_RESULT.exists():
-        with open(_EVAL_RESULT, "r", encoding="utf-8") as f:
-            result = json.load(f)
-        return {
-            "status": "completed",
-            "dataset": "CRUD-RAG (arXiv:2401.17043)",
-            "judge_llm": "LongCat-2.0",
-            "scores": result.get("scores", {}),
-        }
+        try:
+            with open(_EVAL_RESULT, "r", encoding="utf-8") as f:
+                result = json.load(f)
+        except Exception:
+            pass
+
     return {
-        "status": "pending",
-        "message": "尚未运行评测，请在服务器执行: python scripts/eval_ragas.py",
+        "status": "completed" if result else "pending",
+        "dataset": "CRUD-RAG (arXiv:2401.17043)",
+        "judge_llm": "LongCat-2.0",
+        "progress": progress,
+        "scores": result.get("scores", {}) if result else {},
+        "details": (result.get("details", []) if result else [])[:5],  # 只返回前5条明细
+        "detail_count": len(result.get("details", [])) if result else 0,
     }
 
 
 @router.post("/eval/run")
-async def eval_run(background_tasks: BackgroundTasks,
-                   sample: int = 20,
-                   mode: str | None = None) -> dict:
-    """触发后台评测（异步执行，不阻塞响应）
-
-    - sample: 抽样条数（默认20）
-    - mode: 检索模式 vector/bm25/hybrid（默认用 config.yaml 配置）
-    """
-    import subprocess
-    import sys
-
-    cmd = [sys.executable, "scripts/eval_ragas.py", "--sample", str(sample)]
-    if mode:
-        cmd += ["--mode", mode]
-
-    background_tasks.add_task(
-        subprocess.run, cmd,
-        cwd=str(_EVAL_RESULT.parent.parent.parent),
-    )
+async def eval_run(req: EvalRequest, background_tasks: BackgroundTasks) -> dict:
+    """触发后台评测（异步执行，不阻塞响应）"""
+    if _eval_state["running"]:
+        return {"status": "busy", "message": "评测正在进行中，请等待完成"}
+    background_tasks.add_task(_run_eval, req.sample, req.mode)
     return {
         "status": "started",
-        "message": f"评测已在后台启动（sample={sample}, mode={mode or 'default'}）",
-        "note": "评测约需3-5分钟，完成后 GET /eval 查看结果",
+        "message": f"评测已启动（sample={req.sample}, mode={req.mode or 'default'}）",
+        "note": "评测约需3-5分钟，轮询 GET /eval 查看进度",
     }
