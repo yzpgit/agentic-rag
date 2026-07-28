@@ -13,11 +13,10 @@ document:
 
 # ---------- 检索（核心可插拔点）----------
 retriever:
-  mode: bm25                                # vector / bm25 / hybrid（阶段1先用bm25，无需embedding模型）
+  mode: vector                              # vector / bm25 / hybrid
   vector:
-    provider: faiss                         # faiss / qdrant / chroma
-    embedding: sentence-transformers        # sentence-transformers / bge-m3 / openai
-    embedding_model: all-MiniLM-L6-v2       # 仅 sentence-transformers / bge-m3 生效
+    embedding: xfyun                        # xfyun / openai / qwen（均走 OpenAI 兼容接口）
+    embedding_model: xop3qwen8bembedding    # 讯飞 MaaS embedding（768维，免费额度）
     top_k: 5
   bm25:
     provider: rank_bm25
