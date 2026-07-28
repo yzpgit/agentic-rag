@@ -12,7 +12,7 @@ from .document import pdf_parser, markdown_parser, html_parser, docx_parser  # n
 from .chunking import recursive  # noqa: F401
 
 # 检索
-from .retriever import vector, bm25, hybrid  # noqa: F401
+from .retriever import vector, bm25, hybrid, chroma  # noqa: F401
 
 # LLM
 from .llm import openai_provider  # noqa: F401

@@ -49,7 +49,13 @@ class Pipeline:
         # 检索器：按 mode 选择子配置
         mode = rcfg["mode"]
         if mode == "vector":
-            self.retriever: BaseRetriever = build("retriever", "vector", **rcfg["vector"])
+            vcfg = rcfg["vector"]
+            # provider 决定向量库实现：numpy（默认）/ chroma
+            vprovider = vcfg.get("provider", "numpy")
+            if vprovider == "chroma":
+                self.retriever: BaseRetriever = build("retriever", "chroma", **vcfg)
+            else:
+                self.retriever = build("retriever", "vector", **vcfg)
         elif mode == "bm25":
             self.retriever = build("retriever", "bm25", **rcfg["bm25"])
         else:  # hybrid

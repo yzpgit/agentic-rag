@@ -15,9 +15,13 @@ document:
 retriever:
   mode: vector                              # vector / bm25 / hybrid
   vector:
+    provider: numpy                         # numpy（默认，零依赖）/ chroma（需 pip install chromadb）
     embedding: xfyun                        # xfyun / openai / qwen（均走 OpenAI 兼容接口）
     embedding_model: xop3qwen8bembedding    # 讯飞 MaaS embedding（768维，免费额度）
     top_k: 5
+    # chroma 专用配置（provider=chroma 时生效）
+    collection_name: agentic_rag
+    persist_path: data/index/chroma
   bm25:
     provider: rank_bm25
     top_k: 3
